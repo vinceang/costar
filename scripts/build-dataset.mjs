@@ -16,14 +16,19 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const TOKEN = readFileSync(resolve(ROOT, 'env.local'), 'utf8')
-  .split('\n')
-  .find((l) => l.startsWith('TMDB_READ_TOKEN='))
-  ?.slice('TMDB_READ_TOKEN='.length)
-  .trim()
+const TOKEN = process.env.TMDB_READ_TOKEN?.trim() ||
+  (() => {
+    try {
+      return readFileSync(resolve(ROOT, 'env.local'), 'utf8')
+        .split('\n')
+        .find((l) => l.startsWith('TMDB_READ_TOKEN='))
+        ?.slice('TMDB_READ_TOKEN='.length)
+        .trim()
+    } catch { return undefined }
+  })()
 
 if (!TOKEN) {
-  console.error('TMDB_READ_TOKEN not found in env.local')
+  console.error('TMDB_READ_TOKEN not found in env.local or environment')
   process.exit(1)
 }
 
