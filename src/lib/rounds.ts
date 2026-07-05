@@ -26,8 +26,8 @@ const CHOICES = 5
 const MIN_ONWARD_DEGREE = 5 // prefer correct answers that keep the chain alive
 
 export function roundDuration(streak: number): number {
-  // 11s at the start, ramping down to 6s by streak ~16
-  return Math.round(Math.max(6000, 11000 - streak * 320))
+  // 20s at the start, ramping down to 12s by streak ~20
+  return Math.round(Math.max(12000, 20000 - streak * 400))
 }
 
 /** Weighted toward famous faces so the run starts recognizable. */
@@ -94,13 +94,17 @@ function pickDistractors(
   recentFaces: Set<number>,
 ): number[] {
   const connected = g.adj[currentIdx]
+  const currentCredits = g.allCredits[currentIdx]
   const correctRank = g.popRank[correct]
   const correctEra = g.era[correct]
 
   const eligible = (p: number) =>
     p !== currentIdx &&
     p !== correct &&
-    !connected.has(p) && // fairness: distractors are never valid answers
+    !connected.has(p) && // never a valid answer within the curated graph...
+    // ...and no shared credit anywhere on TMDB (other movies, scripted TV):
+    // a co-star the player recognizes from outside our set must not be a trap
+    !g.people[p].credits.some((id) => currentCredits.has(id)) &&
     !usedActors.has(p) &&
     g.people[p].name !== g.people[correct].name
 

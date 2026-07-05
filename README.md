@@ -1,9 +1,16 @@
-# COSTAR — movie connection survival
+# COSTAR — the movie connection game
 
-A survival-mode arcade game inspired by Six Degrees of Kevin Bacon. One actor is on
-screen; five faces appear below. Exactly one of them shares a movie credit with the
-current actor. Pick the co-star before the timer runs out, and the chain continues
-with your pick as the new current actor. One miss ends the run.
+Two game modes inspired by Six Degrees of Kevin Bacon:
+
+- **Journey** (and **Daily Journey**, same seeded board for everyone): link a start
+  actor to a destination actor in at most six shared-movie hops. Every choice is a
+  real co-star of the current actor — the skill is routing: pick the co-star that
+  gets you *closer*. After each hop you learn 🔥 closer / 〰️ sideways / ❄️ further.
+  Par comes from BFS shortest path (guaranteed achievable); results are shareable
+  Wordle-style.
+- **Survival**: one actor on screen, five faces below, exactly one shares a movie
+  credit. Pick the co-star before the timer runs out; the chain continues with your
+  pick. One miss ends the run.
 
 ## Running it
 
@@ -29,10 +36,16 @@ loads the prebuilt graph and pulls images straight from TMDB's CDN.
   toward famous, well-connected ones); the four distractors are provably *not*
   connected to the current actor but sit in the same popularity band and era as the
   correct answer, so they look plausible.
+- `src/lib/journey.ts` powers journey mode: BFS from the destination gives every
+  actor a distance, which drives pair selection (par always achievable), the
+  guaranteed distance-reducing choice each round, and warmth feedback. Journeys end
+  early and honestly if the destination becomes unreachable in the links remaining.
 - `src/game/useGame.ts` is the run state machine:
-  `menu → round → reveal → round → … → miss → gameover`.
-  All randomness flows through a seeded RNG, so the **Daily Challenge** (seeded from
-  the date) is the same board for everyone.
+  `menu → round → reveal → round → … → miss/victory → gameover`.
+  All randomness flows through a seeded RNG, so the daily modes are the same board
+  for everyone.
+- `src/lib/share.ts` builds the shareable result text (native share sheet on mobile,
+  clipboard elsewhere).
 - Scoring: `(100 + time-bonus + deep-cut bonus) × streak multiplier`. Deep cuts are
   shared movies under 4,000 TMDB votes. The multiplier grows +0.1 per streak, capped ×3.
 - Sound is synthesized with WebAudio (no assets); the correct-answer chime rises in

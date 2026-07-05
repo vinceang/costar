@@ -1,18 +1,28 @@
 import type { Graph } from '../lib/dataset'
 import { imageUrl } from '../lib/dataset'
-import type { ChainLink } from '../game/types'
+import type { ChainLink, JourneyState } from '../game/types'
 
 interface Props {
   graph: Graph
   link: ChainLink
   streak: number
+  journey?: JourneyState | null
+  arrived?: boolean
 }
+
+const WARMTH_TEXT = {
+  closer: { icon: '🔥', label: 'Getting closer' },
+  same: { icon: '〰️', label: 'Sideways move' },
+  further: { icon: '❄️', label: 'Drifting away' },
+} as const
 
 /**
  * The "match moment": both actors, an energized beam between them, the shared
  * movie poster flipping in, and the points earned. Timed to REVEAL_MS.
  */
-export function MatchOverlay({ graph, link, streak }: Props) {
+export function MatchOverlay({ graph, link, streak, journey, arrived }: Props) {
+  const linksLeft = journey ? journey.maxLinks - streak : 0
+  const warmth = link.warmth ? WARMTH_TEXT[link.warmth] : null
   const from = graph.people[link.fromIdx]
   const to = graph.people[link.toIdx]
   const movie = graph.movies[link.movieIdx]
@@ -55,10 +65,29 @@ export function MatchOverlay({ graph, link, streak }: Props) {
           </div>
         </div>
 
-        <div className="match-points">
-          +{link.points.toLocaleString()}
-          {streak >= 3 && <span className="match-combo">×{(1 + Math.min(streak - 1, 20) * 0.1).toFixed(1)} combo</span>}
-        </div>
+        {journey ? (
+          <div className={`match-warmth ${arrived ? 'arrived' : link.warmth}`}>
+            {arrived ? (
+              <>🎯 Arrived!</>
+            ) : (
+              warmth && (
+                <>
+                  {warmth.icon} {warmth.label}
+                  <span className="match-links-left">
+                    {linksLeft} link{linksLeft === 1 ? '' : 's'} left
+                  </span>
+                </>
+              )
+            )}
+          </div>
+        ) : (
+          <div className="match-points">
+            +{link.points.toLocaleString()}
+            {streak >= 3 && (
+              <span className="match-combo">×{(1 + Math.min(streak - 1, 20) * 0.1).toFixed(1)} combo</span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -11,6 +11,13 @@ export interface Person {
   name: string
   profile: string
   pop: number
+  /**
+   * Every screen credit on TMDB (movies + scripted TV), encoded id*2 for
+   * movies / id*2+1 for TV. Used only to disqualify distractors that share
+   * any real-world credit with the current actor — including titles outside
+   * the curated movie set.
+   */
+  credits: number[]
 }
 
 export interface Movie {
@@ -20,8 +27,23 @@ export interface Movie {
   poster: string
   backdrop: string | null
   votes: number
+  genres: number[] // TMDB genre ids
   cast: number[] // indices into people
 }
+
+/** TMDB movie genre ids -> display names (stable public ids), in shelf order. */
+export const GENRES: [number, string][] = [
+  [28, 'Action'],
+  [35, 'Comedy'],
+  [18, 'Drama'],
+  [878, 'Sci-Fi'],
+  [27, 'Horror'],
+  [16, 'Animation'],
+  [80, 'Crime'],
+  [10749, 'Romance'],
+  [53, 'Thriller'],
+  [14, 'Fantasy'],
+]
 
 interface RawDataset {
   imageBase: string
@@ -43,6 +65,8 @@ export interface Graph {
   byPopularity: number[]
   /** rank in byPopularity for each person index */
   popRank: number[]
+  /** person index -> full encoded credit set (see Person.credits) */
+  allCredits: Set<number>[]
 }
 
 export async function loadGraph(): Promise<Graph> {
@@ -78,7 +102,19 @@ export function buildGraph(raw: RawDataset): Graph {
   const popRank = new Array<number>(n)
   byPopularity.forEach((personIdx, rank) => (popRank[personIdx] = rank))
 
-  return { imageBase: raw.imageBase, people: raw.people, movies: raw.movies, adj, filmography, era, byPopularity, popRank }
+  const allCredits = raw.people.map((p) => new Set(p.credits ?? []))
+
+  return {
+    imageBase: raw.imageBase,
+    people: raw.people,
+    movies: raw.movies,
+    adj,
+    filmography,
+    era,
+    byPopularity,
+    popRank,
+    allCredits,
+  }
 }
 
 /** Movie indices shared by two actors, best (most-voted) first. */

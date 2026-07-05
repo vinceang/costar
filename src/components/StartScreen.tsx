@@ -4,39 +4,50 @@ import { useSettings } from '../game/settings'
 
 interface Props {
   onStart: (mode: Mode) => void
+  onOpenPicker: () => void
   bestScore: number
   bestStreak: number
   ready: boolean
   error: string | null
 }
 
-export function StartScreen({ onStart, bestScore, bestStreak, ready, error }: Props) {
+export function StartScreen({ onStart, onOpenPicker, bestScore, bestStreak, ready, error }: Props) {
   const [showAbout, setShowAbout] = useState(false)
   const { settings, update } = useSettings()
 
   return (
     <div className="menu">
       <div className="menu-inner">
-        <p className="menu-kicker">The movie connection survival game</p>
+        <p className="menu-kicker">The movie connection game</p>
         <h1 className="menu-title">
           CO<span>★</span>STAR
         </h1>
         <p className="menu-tag">
-          One actor. Five faces. Only one of them shares a movie credit — find the co-star before
-          the clock runs out and keep the chain alive.
+          Chain actors together through the movies they share — race a destination in Journey, or
+          survive as long as you can.
         </p>
 
         {error ? (
           <p className="menu-error">Couldn’t load the movie graph: {error}</p>
         ) : (
+          <>
           <div className="menu-buttons">
-            <button className="btn btn-primary" disabled={!ready} onClick={() => onStart('endless')}>
-              {ready ? 'Play Endless' : 'Loading…'}
+            <button className="btn btn-primary" disabled={!ready} onClick={onOpenPicker}>
+              {ready ? 'Journey' : 'Loading…'}
             </button>
-            <button className="btn" disabled={!ready} onClick={() => onStart('daily')}>
-              Daily Challenge
+            <button className="btn" disabled={!ready} onClick={() => onStart('daily-journey')}>
+              Daily Journey
+            </button>
+            <button className="btn" disabled={!ready} onClick={() => onStart('endless')}>
+              Survival
             </button>
           </div>
+          <p className="menu-modes-hint">
+            <strong>Journey</strong>: link two stars in six hops — every choice is a real co-star,
+            pick the one that gets you closer. <strong>Survival</strong>: spot the one true co-star,
+            forever, against the clock.
+          </p>
+          </>
         )}
 
         {(bestScore > 0 || bestStreak > 0) && (

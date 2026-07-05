@@ -4,6 +4,7 @@ import type { GameState } from '../game/types'
 import { Portrait } from './Portrait'
 import { TimerRing } from './TimerRing'
 import { MatchOverlay } from './MatchOverlay'
+import { JourneyRail } from './JourneyRail'
 import { sfx } from '../audio/sfx'
 
 interface Props {
@@ -14,7 +15,7 @@ interface Props {
 }
 
 export function GameScreen({ graph, state, onPick, onTimeout }: Props) {
-  const { phase, round, miss } = state
+  const { phase, round, miss, journey } = state
   // During 'miss' we keep showing the failed round, annotated
   const shown = phase === 'miss' && miss ? miss.round : round
   if (!shown) return null
@@ -25,26 +26,46 @@ export function GameScreen({ graph, state, onPick, onTimeout }: Props) {
   return (
     <div className="game">
       <header className="hud">
-        <div className="hud-stat">
-          <span className="hud-label">Score</span>
-          <span className="hud-value" key={state.score}>
-            {state.score.toLocaleString()}
-          </span>
-        </div>
-        <div className="hud-stat hud-streak">
-          <span className="hud-label">Streak</span>
-          <span className="hud-value" key={state.streak}>
-            {state.streak}
-            {state.streak >= 3 && (
-              <em className="hud-combo">×{(1 + Math.min(state.streak, 20) * 0.1).toFixed(1)}</em>
-            )}
-          </span>
-        </div>
-        <div className="hud-stat hud-best">
-          <span className="hud-label">Best</span>
-          <span className="hud-value">{state.bestScore.toLocaleString()}</span>
-        </div>
+        {journey ? (
+          <>
+            <div className="hud-stat">
+              <span className="hud-label">Links</span>
+              <span className="hud-value" key={state.history.length}>
+                {state.history.length}
+                <em className="hud-of">/{journey.maxLinks}</em>
+              </span>
+            </div>
+            <div className="hud-stat hud-best">
+              <span className="hud-label">Par</span>
+              <span className="hud-value">{journey.par}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="hud-stat">
+              <span className="hud-label">Score</span>
+              <span className="hud-value" key={state.score}>
+                {state.score.toLocaleString()}
+              </span>
+            </div>
+            <div className="hud-stat hud-streak">
+              <span className="hud-label">Streak</span>
+              <span className="hud-value" key={state.streak}>
+                {state.streak}
+                {state.streak >= 3 && (
+                  <em className="hud-combo">×{(1 + Math.min(state.streak, 20) * 0.1).toFixed(1)}</em>
+                )}
+              </span>
+            </div>
+            <div className="hud-stat hud-best">
+              <span className="hud-label">Best</span>
+              <span className="hud-value">{state.bestScore.toLocaleString()}</span>
+            </div>
+          </>
+        )}
       </header>
+
+      {journey && <JourneyRail graph={graph} state={state} />}
 
       <main className="stage">
         <div className={`current ${phase === 'miss' ? 'lost' : ''}`} key={shown.currentIdx}>
@@ -61,7 +82,11 @@ export function GameScreen({ graph, state, onPick, onTimeout }: Props) {
               className="current-portrait"
             />
           </div>
-          <p className="current-hint">Who shares a movie with</p>
+          <p className="current-hint">
+            {journey
+              ? `All are co-stars — route toward ${graph.people[journey.targetIdx].name}`
+              : 'Who shares a movie with'}
+          </p>
           <h2 className="current-name">{current.name}</h2>
         </div>
 
@@ -69,13 +94,14 @@ export function GameScreen({ graph, state, onPick, onTimeout }: Props) {
           {shown.choices.map((p, pos) => {
             const person = graph.people[p]
             const isCorrect = pos === shown.correctPos
+            const isPicked = state.lastLink?.toIdx === p && phase === 'reveal'
             const cls = [
               'choice',
               phase === 'miss' && isCorrect ? 'was-correct' : '',
               phase === 'miss' && miss?.pickedPos === pos ? 'was-wrong' : '',
               phase === 'miss' && !isCorrect && miss?.pickedPos !== pos ? 'faded' : '',
-              phase === 'reveal' && isCorrect ? 'hit' : '',
-              phase === 'reveal' && !isCorrect ? 'faded' : '',
+              phase === 'reveal' && (journey ? isPicked : isCorrect) ? 'hit' : '',
+              phase === 'reveal' && !(journey ? isPicked : isCorrect) ? 'faded' : '',
             ]
               .filter(Boolean)
               .join(' ')
@@ -108,7 +134,13 @@ export function GameScreen({ graph, state, onPick, onTimeout }: Props) {
       </main>
 
       {phase === 'reveal' && state.lastLink && (
-        <MatchOverlay graph={graph} link={state.lastLink} streak={state.streak} />
+        <MatchOverlay
+          graph={graph}
+          link={state.lastLink}
+          streak={state.streak}
+          journey={journey}
+          arrived={state.lastLink.toIdx === journey?.targetIdx}
+        />
       )}
     </div>
   )

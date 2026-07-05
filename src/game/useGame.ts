@@ -1,21 +1,27 @@
 /**
  * Game orchestration hook: owns the run state machine and all transitions.
  *
- *   menu -> round -> (pick correct) -> reveal -> round -> ...
- *               \--> (pick wrong / timeout) -> miss -> gameover -> menu/round
+ * Survival:  menu -> round -> reveal -> round -> ... -> miss -> gameover
+ * Journey:   menu -> round -> reveal -> round -> ... -> victory | gameover
+ *
+ * In journey mode every choice is a real co-star, so picks never "miss" —
+ * the run ends by arrival, by running out of links, by the destination
+ * becoming unreachable in the links remaining, or by timeout.
  *
  * Round generation is synchronous against the in-memory graph, so the next
- * round is built the moment a correct pick lands and its images preload
- * behind the reveal overlay. All impure work (rng, sfx, timers) happens in
- * event handlers — state updaters stay pure for StrictMode safety.
+ * round is built the moment a pick lands and its images preload behind the
+ * reveal overlay. All impure work (rng, sfx, timers) happens in event
+ * handlers — state updaters stay pure for StrictMode safety.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Graph } from '../lib/dataset'
-import { imageUrl } from '../lib/dataset'
+import { imageUrl, sharedMovies } from '../lib/dataset'
 import type { Rng } from '../lib/rng'
 import { createRng, hashString } from '../lib/rng'
 import type { Round } from '../lib/rounds'
 import { generateRound, pickStartActor } from '../lib/rounds'
+import type { JourneyPair } from '../lib/journey'
+import { MAX_LINKS, generateJourneyRound, makePair, pickJourneyPair, warmthOf } from '../lib/journey'
 import { sfx } from '../audio/sfx'
 import type { ChainLink, GameState, Mode } from './types'
 
@@ -25,12 +31,37 @@ const RECENT_FACES_WINDOW = 40
 const DEEP_CUT_VOTES = 4000
 
 const BEST_KEY = 'costar.best'
+const ROUTES_KEY = 'costar.routes'
 
 function loadBest(): { score: number; streak: number } {
   try {
     return { score: 0, streak: 0, ...JSON.parse(localStorage.getItem(BEST_KEY) ?? '{}') }
   } catch {
     return { score: 0, streak: 0 }
+  }
+}
+
+/** Per-route personal bests, keyed by TMDB person ids "startId>targetId". */
+function routeKey(g: Graph, startIdx: number, targetIdx: number): string {
+  return `${g.people[startIdx].id}>${g.people[targetIdx].id}`
+}
+
+function loadRouteBest(g: Graph, startIdx: number, targetIdx: number): number | null {
+  try {
+    const routes = JSON.parse(localStorage.getItem(ROUTES_KEY) ?? '{}')
+    return routes[routeKey(g, startIdx, targetIdx)] ?? null
+  } catch {
+    return null
+  }
+}
+
+function saveRouteBest(g: Graph, startIdx: number, targetIdx: number, links: number) {
+  try {
+    const routes = JSON.parse(localStorage.getItem(ROUTES_KEY) ?? '{}')
+    routes[routeKey(g, startIdx, targetIdx)] = links
+    localStorage.setItem(ROUTES_KEY, JSON.stringify(routes))
+  } catch {
+    // storage full/blocked: route bests are a nicety, not critical
   }
 }
 
@@ -45,6 +76,7 @@ function initialState(best = loadBest()): GameState {
     phase: 'menu',
     mode: 'endless',
     seed: 0,
+    journey: null,
     round: null,
     roundStartedAt: 0,
     pendingRound: null,
@@ -81,6 +113,7 @@ export function useGame(graph: Graph | null) {
   const rngRef = useRef<Rng>(createRng(1))
   const usedActors = useRef<Set<number>>(new Set())
   const recentFaces = useRef<number[]>([])
+  const journeyPairRef = useRef<JourneyPair | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Authoritative round clock: the TimerRing's rAF loop is display-only and
   // pauses in background tabs, so expiry must be enforced here too.
@@ -99,8 +132,18 @@ export function useGame(graph: Graph | null) {
     recentFaces.current = recentFaces.current.slice(-RECENT_FACES_WINDOW)
   }
 
-  /** Generate a round from `from`; if the chain is boxed in, teleport to a fresh actor. */
-  const nextRound = useCallback((g: Graph, from: number, streak: number): Round => {
+  const savedBest = useCallback((s: GameState) => {
+    // Journey results don't compete with survival scores
+    if (s.journey) return { bestScore: s.bestScore, bestStreak: s.bestStreak, newBest: false }
+    const bestScore = Math.max(s.bestScore, s.score)
+    const bestStreak = Math.max(s.bestStreak, s.streak)
+    const newBest = s.score > s.bestScore && s.score > 0
+    localStorage.setItem(BEST_KEY, JSON.stringify({ score: bestScore, streak: bestStreak }))
+    return { bestScore, bestStreak, newBest }
+  }, [])
+
+  /** Survival: generate a round from `from`; teleport if the chain is boxed in. */
+  const nextSurvivalRound = useCallback((g: Graph, from: number, streak: number): Round => {
     const rng = rngRef.current
     const faces = new Set(recentFaces.current)
     let round = generateRound(g, rng, from, usedActors.current, faces, streak)
@@ -120,29 +163,50 @@ export function useGame(graph: Graph | null) {
     return round
   }, [])
 
-  const resolveMiss = useCallback((pickedPos: number | null) => {
-    const s = stateRef.current
-    if (s.phase !== 'round' || !s.round) return
-    clearTimeout(roundTimerRef.current ?? undefined)
-    sfx.wrong()
-    setState({
-      ...s,
-      phase: 'miss',
-      picks: s.picks + 1,
-      miss: { pickedPos, correctPos: s.round.correctPos, round: s.round },
-    })
-    clearTimeout(timeoutRef.current ?? undefined)
-    timeoutRef.current = setTimeout(() => {
-      const cur = stateRef.current
-      if (cur.phase !== 'miss') return
-      sfx.gameover()
-      const bestScore = Math.max(cur.bestScore, cur.score)
-      const bestStreak = Math.max(cur.bestStreak, cur.streak)
-      const newBest = cur.score > cur.bestScore && cur.score > 0
-      localStorage.setItem(BEST_KEY, JSON.stringify({ score: bestScore, streak: bestStreak }))
-      setState({ ...cur, phase: 'gameover', bestScore, bestStreak, newBest })
-    }, MISS_MS)
+  /** Journey rounds reuse the Round shape; correctPos -1 = "no trap answers". */
+  const nextJourneyRound = useCallback((g: Graph, from: number): Round => {
+    const jr = generateJourneyRound(g, rngRef.current, from, journeyPairRef.current!, usedActors.current)
+    const round: Round = { ...jr, correctPos: -1, shared: [] }
+    preloadRound(g, round)
+    return round
   }, [])
+
+  const resolveMiss = useCallback(
+    (pickedPos: number | null) => {
+      const s = stateRef.current
+      if (s.phase !== 'round' || !s.round) return
+      clearTimeout(roundTimerRef.current ?? undefined)
+
+      if (s.journey) {
+        // Journey timeout: no wrong answer to reveal — straight to the summary
+        sfx.gameover()
+        setState({
+          ...s,
+          phase: 'gameover',
+          picks: s.picks + 1,
+          journey: { ...s.journey, failReason: 'timeout' },
+          ...savedBest(s),
+        })
+        return
+      }
+
+      sfx.wrong()
+      setState({
+        ...s,
+        phase: 'miss',
+        picks: s.picks + 1,
+        miss: { pickedPos, correctPos: s.round.correctPos, round: s.round },
+      })
+      clearTimeout(timeoutRef.current ?? undefined)
+      timeoutRef.current = setTimeout(() => {
+        const cur = stateRef.current
+        if (cur.phase !== 'miss') return
+        sfx.gameover()
+        setState({ ...cur, phase: 'gameover', ...savedBest(cur) })
+      }, MISS_MS)
+    },
+    [savedBest],
+  )
 
   const armRoundTimer = useCallback(
     (durationMs: number) => {
@@ -155,34 +219,159 @@ export function useGame(graph: Graph | null) {
   )
 
   const start = useCallback(
-    (mode: Mode) => {
+    (mode: Mode, opts?: { startIdx?: number; route?: { startIdx: number; targetIdx: number } }) => {
       if (!graph) return
       clearTimeout(timeoutRef.current ?? undefined)
-      const seed = mode === 'daily' ? dailySeed() : (Math.random() * 2 ** 32) >>> 0
-      rngRef.current = createRng(seed)
+      const isDaily = mode === 'daily' || mode === 'daily-journey'
+      const isJourney = mode === 'journey' || mode === 'daily-journey'
+      const seed = isDaily ? dailySeed() : (Math.random() * 2 ** 32) >>> 0
+      rngRef.current = createRng(isJourney && isDaily ? seed ^ 0x6a6f7572 : seed)
       usedActors.current = new Set()
       recentFaces.current = []
-      const startActor = pickStartActor(graph, rngRef.current)
-      usedActors.current.add(startActor)
-      const round = nextRound(graph, startActor, 0)
-      sfx.whoosh()
-      armRoundTimer(round.durationMs)
-      setState({
+
+      const base = {
         ...initialState({ score: stateRef.current.bestScore, streak: stateRef.current.bestStreak }),
-        phase: 'round',
+        phase: 'round' as const,
         mode,
         seed,
-        round,
         roundStartedAt: performance.now(),
+      }
+
+      if (isJourney) {
+        const pair = opts?.route
+          ? makePair(graph, opts.route.startIdx, opts.route.targetIdx)
+          : pickJourneyPair(graph, rngRef.current, opts?.startIdx)
+        journeyPairRef.current = pair
+        usedActors.current.add(pair.startIdx)
+        const round = nextJourneyRound(graph, pair.startIdx)
+        // Preload the destination portrait for the progress rail
+        const targetUrl = imageUrl(graph, graph.people[pair.targetIdx].profile, 'w185')
+        if (targetUrl) new Image().src = targetUrl
+        sfx.whoosh()
+        armRoundTimer(round.durationMs)
+        setState({
+          ...base,
+          round,
+          journey: {
+            startIdx: pair.startIdx,
+            targetIdx: pair.targetIdx,
+            par: pair.par,
+            maxLinks: MAX_LINKS,
+            distNow: pair.dist[pair.startIdx],
+            failReason: null,
+            routeBest: loadRouteBest(graph, pair.startIdx, pair.targetIdx),
+            newRouteBest: false,
+          },
+        })
+        return
+      }
+
+      journeyPairRef.current = null
+      const startActor = pickStartActor(graph, rngRef.current)
+      usedActors.current.add(startActor)
+      const round = nextSurvivalRound(graph, startActor, 0)
+      sfx.whoosh()
+      armRoundTimer(round.durationMs)
+      setState({ ...base, round })
+    },
+    [graph, nextSurvivalRound, nextJourneyRound, armRoundTimer],
+  )
+
+  const journeyPick = useCallback(
+    (pos: number) => {
+      const s = stateRef.current
+      const pair = journeyPairRef.current
+      if (!graph || !pair || !s.journey || s.phase !== 'round' || !s.round) return
+      const elapsed = performance.now() - s.roundStartedAt
+      if (elapsed > s.round.durationMs + 250) {
+        resolveMiss(null)
+        return
+      }
+      clearTimeout(roundTimerRef.current ?? undefined)
+
+      const picked = s.round.choices[pos]
+      const shared = sharedMovies(graph, s.round.currentIdx, picked)
+      const warmth = warmthOf(pair, s.round.currentIdx, picked)
+      const linksUsed = s.history.length + 1
+      const arrived = picked === pair.targetIdx
+      const distNow = pair.dist[picked]
+
+      const link: ChainLink = {
+        fromIdx: s.round.currentIdx,
+        toIdx: picked,
+        movieIdx: shared[0],
+        extraShared: shared.length - 1,
+        points: 0,
+        ms: Math.round(elapsed),
+        warmth,
+      }
+
+      usedActors.current.add(picked)
+      if (arrived) sfx.correct(8)
+      else if (warmth === 'closer') sfx.correct(linksUsed)
+      else sfx.whoosh()
+
+      const outOfLinks = !arrived && linksUsed >= s.journey.maxLinks
+      const unreachable = !arrived && distNow > s.journey.maxLinks - linksUsed
+      const nextPhase = arrived ? 'victory' : outOfLinks || unreachable ? 'gameover' : 'round'
+      const pending = nextPhase === 'round' ? nextJourneyRound(graph, picked) : null
+
+      clearTimeout(timeoutRef.current ?? undefined)
+      timeoutRef.current = setTimeout(() => {
+        const cur = stateRef.current
+        if (cur.phase !== 'reveal' || !cur.journey) return
+        if (nextPhase === 'round' && cur.pendingRound) {
+          sfx.whoosh()
+          armRoundTimer(cur.pendingRound.durationMs)
+          setState({ ...cur, phase: 'round', round: cur.pendingRound, pendingRound: null, roundStartedAt: performance.now() })
+        } else {
+          if (nextPhase === 'gameover') sfx.gameover()
+          let routeBest = cur.journey.routeBest
+          let newRouteBest = false
+          if (nextPhase === 'victory') {
+            const links = cur.history.length
+            newRouteBest = routeBest === null || links < routeBest
+            if (newRouteBest) {
+              routeBest = links
+              saveRouteBest(graph, cur.journey.startIdx, cur.journey.targetIdx, links)
+            }
+          }
+          setState({
+            ...cur,
+            phase: nextPhase,
+            journey: {
+              ...cur.journey,
+              failReason: nextPhase === 'gameover' ? (outOfLinks ? 'links' : 'unreachable') : null,
+              routeBest,
+              newRouteBest,
+            },
+            ...savedBest(cur),
+          })
+        }
+      }, REVEAL_MS)
+
+      setState({
+        ...s,
+        phase: 'reveal',
+        picks: s.picks + 1,
+        streak: linksUsed,
+        history: [...s.history, link],
+        lastLink: link,
+        pendingRound: pending,
+        journey: { ...s.journey, distNow },
       })
     },
-    [graph, nextRound, armRoundTimer],
+    [graph, nextJourneyRound, resolveMiss, armRoundTimer, savedBest],
   )
 
   const pickChoice = useCallback(
     (pos: number) => {
       const s = stateRef.current
       if (!graph || s.phase !== 'round' || !s.round) return
+      if (s.journey) {
+        journeyPick(pos)
+        return
+      }
       const elapsed = performance.now() - s.roundStartedAt
 
       // Late pick (throttled background tab, etc.) counts as a timeout
@@ -215,7 +404,7 @@ export function useGame(graph: Graph | null) {
       }
 
       sfx.correct(s.streak + 1)
-      const pending = nextRound(graph, picked, s.streak + 1)
+      const pending = nextSurvivalRound(graph, picked, s.streak + 1)
 
       clearTimeout(timeoutRef.current ?? undefined)
       timeoutRef.current = setTimeout(() => {
@@ -237,7 +426,7 @@ export function useGame(graph: Graph | null) {
         pendingRound: pending,
       })
     },
-    [graph, nextRound, resolveMiss, armRoundTimer],
+    [graph, nextSurvivalRound, resolveMiss, armRoundTimer, journeyPick],
   )
 
   const timeout = useCallback(() => resolveMiss(null), [resolveMiss])

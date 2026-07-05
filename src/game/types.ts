@@ -1,13 +1,15 @@
 import type { Round } from '../lib/rounds'
+import type { Warmth } from '../lib/journey'
 
-export type Mode = 'endless' | 'daily'
+export type Mode = 'endless' | 'daily' | 'journey' | 'daily-journey'
 
 export type Phase =
   | 'menu'
   | 'round' // choices live, timer running
-  | 'reveal' // correct pick: match overlay playing
+  | 'reveal' // valid pick: match overlay playing
   | 'miss' // wrong pick / timeout: showing what the answer was
   | 'gameover'
+  | 'victory' // journey destination reached
 
 /** One solved link in the chain, kept for the end-of-run recap. */
 export interface ChainLink {
@@ -17,6 +19,22 @@ export interface ChainLink {
   extraShared: number
   points: number
   ms: number
+  /** journey mode: did this hop move toward the destination? */
+  warmth?: Warmth
+}
+
+/** Journey-mode run data; null in survival modes. */
+export interface JourneyState {
+  startIdx: number
+  targetIdx: number
+  par: number
+  maxLinks: number
+  /** current BFS distance from the player's position to the destination */
+  distNow: number
+  failReason: 'links' | 'unreachable' | 'timeout' | null
+  /** fewest links this player has ever used on this exact route */
+  routeBest: number | null
+  newRouteBest: boolean
 }
 
 export interface MissInfo {
@@ -29,6 +47,7 @@ export interface GameState {
   phase: Phase
   mode: Mode
   seed: number
+  journey: JourneyState | null
   round: Round | null
   roundStartedAt: number // performance.now() timestamp
   pendingRound: Round | null // pre-generated during reveal

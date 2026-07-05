@@ -86,6 +86,7 @@ function addDiscoverResults(results) {
         backdrop: m.backdrop_path ?? null,
         votes: m.vote_count,
         pop: m.popularity,
+        genres: m.genre_ids ?? [],
         cast: [],
       })
     }
@@ -157,12 +158,42 @@ const finalPeople = keptPeople.filter((p) => appearing.has(p.id))
 
 console.log(`Kept ${finalPeople.length} actors, ${finalMovies.length} movies`)
 
+// --- 3.5 Full filmographies for distractor fairness ---
+// A distractor must not be connected to the current actor through ANY shared
+// screen credit — including movies outside our curated set and scripted TV
+// (e.g. a co-starring miniseries) — or the round has two defensible answers.
+// Talk-show/"Self" TV appearances are skipped or everyone shares Jimmy Kimmel.
+// Encoding: movie id*2, tv id*2+1 (the two id spaces collide numerically).
+console.log('Fetching combined credits for distractor exclusion...')
+let creditsDone = 0
+await mapLimit(finalPeople, CONCURRENCY, async (p) => {
+  try {
+    const combined = await get(`/person/${p.id}/combined_credits`)
+    const ids = new Set()
+    for (const c of combined.cast ?? []) {
+      if (c.media_type === 'movie') ids.add(c.id * 2)
+      else if (c.media_type === 'tv' && c.character && !/\bself\b/i.test(c.character)) ids.add(c.id * 2 + 1)
+    }
+    p.credits = [...ids].sort((a, b) => a - b)
+  } catch (e) {
+    console.warn(`  no credits for ${p.name}: ${e.message}`)
+    p.credits = []
+  }
+  if (++creditsDone % 200 === 0) console.log(`  credits ${creditsDone}/${finalPeople.length}`)
+})
+
 // --- 4. Emit compact JSON (people/movies arrays, cast as people indices) ---
 const personIndex = new Map(finalPeople.map((p, i) => [p.id, i]))
 const dataset = {
   builtAt: new Date().toISOString(),
   imageBase: 'https://image.tmdb.org/t/p/',
-  people: finalPeople.map((p) => ({ id: p.id, name: p.name, profile: p.profile, pop: Math.round(p.pop * 10) / 10 })),
+  people: finalPeople.map((p) => ({
+    id: p.id,
+    name: p.name,
+    profile: p.profile,
+    pop: Math.round(p.pop * 10) / 10,
+    credits: p.credits ?? [],
+  })),
   movies: finalMovies.map((m) => ({
     id: m.id,
     title: m.title,
@@ -170,6 +201,7 @@ const dataset = {
     poster: m.poster,
     backdrop: m.backdrop,
     votes: m.votes,
+    genres: m.genres,
     cast: m.cast.map((id) => personIndex.get(id)),
   })),
 }
