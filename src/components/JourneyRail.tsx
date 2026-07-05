@@ -17,20 +17,24 @@ export function JourneyRail({ graph, state }: Props) {
   const j = state.journey
   if (!j) return null
   const target = graph.people[j.targetIdx]
-  const links = state.history
+  // Free roam can exceed the budget: show the last maxLinks hops + an
+  // overflow counter, so the rail never grows past its designed width.
+  const overflow = Math.max(0, state.history.length - j.maxLinks)
+  const links = state.history.slice(-j.maxLinks)
 
   return (
-    <div className="jrail" aria-label={`Journey to ${target.name}`}>
+    <div className={`jrail ${j.freeRoam ? 'freeroam' : ''}`} aria-label={`Journey to ${target.name}`}>
       <div className="jrail-end">
         <Portrait
           url={imageUrl(graph, graph.people[j.startIdx].profile, 'w185')}
           name={graph.people[j.startIdx].name}
         />
       </div>
+      {overflow > 0 && <span className="jrail-overflow">+{overflow}</span>}
       {Array.from({ length: j.maxLinks }, (_, i) => {
         const link = links[i]
         return (
-          <div key={i} className={`jrail-slot ${link ? `filled ${link.warmth}` : ''}`}>
+          <div key={i + overflow} className={`jrail-slot ${link ? `filled ${link.warmth}` : ''}`}>
             <span className="jrail-line" />
             {link ? (
               <Portrait

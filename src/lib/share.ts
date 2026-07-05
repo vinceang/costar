@@ -19,7 +19,9 @@ export function buildShareText(g: Graph, s: GameState): string {
     const daily = s.mode === 'daily-journey' ? ` — ${dateStamp()}` : ''
     const outcome =
       s.phase === 'victory'
-        ? `✅ Linked in ${s.history.length} · Par ${s.journey.par}`
+        ? s.journey.freeRoam
+          ? `🧭 Found in ${s.history.length} · Par ${s.journey.par} · over budget`
+          : `✅ Linked in ${s.history.length} · Par ${s.journey.par}`
         : `❌ Lost the trail · Par ${s.journey.par}`
     return `🎬 COSTAR Journey${daily}\n${start} → ${target}\n${outcome}\n${trail}`
   }

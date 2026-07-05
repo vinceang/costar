@@ -15,7 +15,7 @@ export default function App() {
   const [graph, setGraph] = useState<Graph | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showPicker, setShowPicker] = useState(false)
-  const { state, start, pickChoice, timeout, toMenu } = useGame(graph)
+  const { state, start, pickChoice, timeout, toMenu, skipReveal, continueFreeRoam } = useGame(graph)
 
   const retryRoute = () => {
     if (state.journey) {
@@ -43,6 +43,8 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if (state.phase === 'round' && e.key >= '1' && e.key <= '5') {
         pickChoice(Number(e.key) - 1)
+      } else if (state.phase === 'reveal' && (e.key === 'Enter' || e.key === ' ')) {
+        skipReveal()
       } else if ((state.phase === 'gameover' || state.phase === 'victory') && e.key === 'Enter') {
         start(state.mode)
       } else if (e.key === 'Escape') {
@@ -52,7 +54,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [state.phase, state.mode, pickChoice, start, toMenu])
+  }, [state.phase, state.mode, pickChoice, start, toMenu, skipReveal])
 
   return (
     <SettingsContext.Provider value={settingsState}>
@@ -85,11 +87,24 @@ export default function App() {
         <>
           {/* Journey mode has the progress rail; the ambient trail is survival-only */}
           {!state.journey && <ChainTrail graph={graph} history={state.history} />}
-          <GameScreen graph={graph} state={state} onPick={pickChoice} onTimeout={timeout} />
+          <GameScreen
+            graph={graph}
+            state={state}
+            onPick={pickChoice}
+            onTimeout={timeout}
+            onSkipReveal={skipReveal}
+          />
         </>
       )}
       {(state.phase === 'gameover' || state.phase === 'victory') && graph && (
-        <GameOver graph={graph} state={state} onRestart={start} onRetryRoute={retryRoute} onMenu={toMenu} />
+        <GameOver
+          graph={graph}
+          state={state}
+          onRestart={start}
+          onRetryRoute={retryRoute}
+          onKeepExploring={continueFreeRoam}
+          onMenu={toMenu}
+        />
       )}
     </SettingsContext.Provider>
   )

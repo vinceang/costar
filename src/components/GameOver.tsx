@@ -11,6 +11,7 @@ interface Props {
   state: GameState
   onRestart: (mode: Mode) => void
   onRetryRoute: () => void
+  onKeepExploring: () => void
   onMenu: () => void
 }
 
@@ -26,7 +27,7 @@ function parVerdict(links: number, par: number): string {
   return `${over} over par`
 }
 
-export function GameOver({ graph, state, onRestart, onRetryRoute, onMenu }: Props) {
+export function GameOver({ graph, state, onRestart, onRetryRoute, onKeepExploring, onMenu }: Props) {
   const [shareLabel, setShareLabel] = useState('Share')
   const stats = runStats(state, (mi) => graph.movies[mi].votes)
   const rarest = stats.rarestMovieIdx !== null ? graph.movies[stats.rarestMovieIdx] : null
@@ -53,7 +54,7 @@ export function GameOver({ graph, state, onRestart, onRetryRoute, onMenu }: Prop
         {j ? (
           <>
             <p className="go-kicker">
-              {won ? '🎯 Arrived' : 'Journey lost'}
+              {won ? (j.freeRoam ? '🧭 Found them' : '🎯 Arrived') : 'Journey lost'}
               {state.mode === 'daily-journey' ? ' · Daily' : ''}
             </p>
             <div className="go-journey-route">
@@ -61,8 +62,11 @@ export function GameOver({ graph, state, onRestart, onRetryRoute, onMenu }: Prop
             </div>
             {won ? (
               <p className="go-streak">
-                Linked in <strong>{state.history.length}</strong> · Par {j.par} ·{' '}
-                <strong className="go-verdict">{parVerdict(state.history.length, j.par)}</strong>
+                {j.freeRoam ? 'Found in ' : 'Linked in '}
+                <strong>{state.history.length}</strong> · Par {j.par} ·{' '}
+                <strong className="go-verdict">
+                  {j.freeRoam ? 'beyond the budget — now do it in 6' : parVerdict(state.history.length, j.par)}
+                </strong>
                 {j.newRouteBest && state.history.length > j.par && (
                   <span className="go-routebest">New route best!</span>
                 )}
@@ -148,9 +152,14 @@ export function GameOver({ graph, state, onRestart, onRetryRoute, onMenu }: Prop
         )}
 
         <div className="go-buttons">
+          {j && !won && (
+            // Closure over challenge: wander the graph until you find them
+            <button className="btn btn-primary" onClick={onKeepExploring} autoFocus>
+              Keep Exploring
+            </button>
+          )}
           {j && (won ? state.history.length > j.par : true) ? (
-            // There's still room to improve on this route — lead with retry
-            <button className="btn btn-primary" onClick={onRetryRoute} autoFocus>
+            <button className={`btn ${!won ? '' : 'btn-primary'}`} onClick={onRetryRoute} autoFocus={won}>
               Retry Route
             </button>
           ) : null}

@@ -21,6 +21,8 @@ export interface ChainLink {
   ms: number
   /** journey mode: did this hop move toward the destination? */
   warmth?: Warmth
+  /** all shared movie indices (best first, capped) for the reveal overlay */
+  sharedAll?: number[]
 }
 
 /** Journey-mode run data; null in survival modes. */
@@ -35,6 +37,10 @@ export interface JourneyState {
   /** fewest links this player has ever used on this exact route */
   routeBest: number | null
   newRouteBest: boolean
+  /** post-loss continuation: no timer, no link budget, ends only on arrival */
+  freeRoam: boolean
+  /** free roam: consecutive non-closer hops; shrinks the choice count */
+  drift: number
 }
 
 export interface MissInfo {

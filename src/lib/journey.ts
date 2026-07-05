@@ -85,12 +85,25 @@ export function warmthOf(pair: JourneyPair, from: number, to: number): Warmth {
   return d < 0 ? 'closer' : d === 0 ? 'same' : 'further'
 }
 
+/**
+ * Free-roam assist: the longer the player drifts (consecutive hops that don't
+ * get closer), the fewer choices they face — the guaranteed closer-choice is
+ * always among them, so a smaller lineup means better odds of finding it.
+ * A closer hop resets the drift, restoring 4 choices.
+ */
+export function freeRoamChoiceCount(drift: number): number {
+  if (drift >= 3) return 2
+  if (drift >= 2) return 3
+  return 4
+}
+
 export function generateJourneyRound(
   g: Graph,
   rng: Rng,
   currentIdx: number,
   pair: JourneyPair,
   visited: Set<number>,
+  choiceCount = 5,
 ): JourneyRound {
   const distCur = pair.dist[currentIdx]
   const neighbors = [...g.adj[currentIdx]]
@@ -115,7 +128,7 @@ export function generateJourneyRound(
       const visitPenalty = (visited.has(a) ? 1 : 0) - (visited.has(b) ? 1 : 0)
       return visitPenalty || byFame(a, b)
     })
-  const fill = shuffle(rng, fillPool.slice(0, 12)).slice(0, 4)
+  const fill = shuffle(rng, fillPool.slice(0, 12)).slice(0, choiceCount - 1)
 
   const choices = shuffle(rng, [guaranteed, ...fill])
   return { currentIdx, choices, durationMs: JOURNEY_ROUND_MS }

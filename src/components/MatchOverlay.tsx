@@ -8,6 +8,7 @@ interface Props {
   streak: number
   journey?: JourneyState | null
   arrived?: boolean
+  onSkip: () => void
 }
 
 const WARMTH_TEXT = {
@@ -20,9 +21,11 @@ const WARMTH_TEXT = {
  * The "match moment": both actors, an energized beam between them, the shared
  * movie poster flipping in, and the points earned. Timed to REVEAL_MS.
  */
-export function MatchOverlay({ graph, link, streak, journey, arrived }: Props) {
+export function MatchOverlay({ graph, link, streak, journey, arrived, onSkip }: Props) {
   const linksLeft = journey ? journey.maxLinks - streak : 0
   const warmth = link.warmth ? WARMTH_TEXT[link.warmth] : null
+  const alsoIn = (link.sharedAll ?? []).slice(1, 3)
+  const moreCount = link.extraShared - alsoIn.length
   const from = graph.people[link.fromIdx]
   const to = graph.people[link.toIdx]
   const movie = graph.movies[link.movieIdx]
@@ -30,7 +33,7 @@ export function MatchOverlay({ graph, link, streak, journey, arrived }: Props) {
   const poster = imageUrl(graph, movie.poster, 'w342')
 
   return (
-    <div className="match" role="status">
+    <div className="match" role="status" onClick={onSkip}>
       {backdrop && (
         <div className="match-backdrop" style={{ backgroundImage: `url(${backdrop})` }} />
       )}
@@ -57,9 +60,16 @@ export function MatchOverlay({ graph, link, streak, journey, arrived }: Props) {
             <strong className="match-title">
               {movie.title} <em>({movie.year})</em>
             </strong>
-            {link.extraShared > 0 && (
+            {alsoIn.length > 0 && (
               <span className="match-extra">
-                +{link.extraShared} more film{link.extraShared > 1 ? 's' : ''} together
+                also in{' '}
+                {alsoIn.map((mi, i) => (
+                  <em key={mi}>
+                    {i > 0 && ' · '}
+                    {graph.movies[mi].title}
+                  </em>
+                ))}
+                {moreCount > 0 && ` +${moreCount} more`}
               </span>
             )}
           </div>
@@ -88,6 +98,8 @@ export function MatchOverlay({ graph, link, streak, journey, arrived }: Props) {
             )}
           </div>
         )}
+
+        <span className="match-continue">tap to continue</span>
       </div>
     </div>
   )

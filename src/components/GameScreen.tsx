@@ -12,9 +12,10 @@ interface Props {
   state: GameState
   onPick: (pos: number) => void
   onTimeout: () => void
+  onSkipReveal: () => void
 }
 
-export function GameScreen({ graph, state, onPick, onTimeout }: Props) {
+export function GameScreen({ graph, state, onPick, onTimeout, onSkipReveal }: Props) {
   const { phase, round, miss, journey } = state
   // During 'miss' we keep showing the failed round, annotated
   const shown = phase === 'miss' && miss ? miss.round : round
@@ -29,10 +30,10 @@ export function GameScreen({ graph, state, onPick, onTimeout }: Props) {
         {journey ? (
           <>
             <div className="hud-stat">
-              <span className="hud-label">Links</span>
+              <span className="hud-label">{journey.freeRoam ? 'Exploring' : 'Links'}</span>
               <span className="hud-value" key={state.history.length}>
                 {state.history.length}
-                <em className="hud-of">/{journey.maxLinks}</em>
+                <em className="hud-of">/{journey.freeRoam ? '∞' : journey.maxLinks}</em>
               </span>
             </div>
             <div className="hud-stat hud-best">
@@ -70,12 +71,14 @@ export function GameScreen({ graph, state, onPick, onTimeout }: Props) {
       <main className="stage">
         <div className={`current ${phase === 'miss' ? 'lost' : ''}`} key={shown.currentIdx}>
           <div className="current-frame">
-            <TimerRing
-              startedAt={state.roundStartedAt}
-              durationMs={shown.durationMs}
-              running={phase === 'round'}
-              onExpire={onTimeout}
-            />
+            {!journey?.freeRoam && (
+              <TimerRing
+                startedAt={state.roundStartedAt}
+                durationMs={shown.durationMs}
+                running={phase === 'round'}
+                onExpire={onTimeout}
+              />
+            )}
             <Portrait
               url={imageUrl(graph, current.profile, 'w342')}
               name={current.name}
@@ -140,6 +143,7 @@ export function GameScreen({ graph, state, onPick, onTimeout }: Props) {
           streak={state.streak}
           journey={journey}
           arrived={state.lastLink.toIdx === journey?.targetIdx}
+          onSkip={onSkipReveal}
         />
       )}
     </div>
