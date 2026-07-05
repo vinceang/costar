@@ -1347,7 +1347,7 @@ button {
     width: clamp(96px, 15vh, 140px);
     height: clamp(96px, 15vh, 140px);
   }
-  .current-hint { margin-top: 12px; }
+  .current-hint { margin-top: 20px; }
   .choices { grid-template-columns: 1fr; max-width: 430px; gap: 9px; }
   .choice,
   .choice:nth-child(4),
@@ -1380,5 +1380,7 @@ button {
   .jrail .portrait { width: 28px; height: 28px; }
   .jrail-dot { width: 9px; height: 9px; margin: 0 8px; }
   .jrail-line { width: 8px; }
-  .jrail-target-name { display: none; }
+  .jrail-target { flex-direction: column; align-items: center; }
+  .jrail-target .portrait { width: 38px; height: 38px; }
+  .jrail-target-name { display: block; margin-left: 0; margin-top: 4px; font-size: 10px; max-width: 64px; text-align: center; white-space: normal; line-height: 1.2; }
 }

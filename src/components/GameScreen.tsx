@@ -87,7 +87,7 @@ export function GameScreen({ graph, state, onPick, onTimeout, onSkipReveal }: Pr
           </div>
           <p className="current-hint">
             {journey
-              ? `All are co-stars — route toward ${graph.people[journey.targetIdx].name}`
+              ? <>All are co-stars — route toward <strong>{graph.people[journey.targetIdx].name}</strong></>
               : 'Who shares a movie with'}
           </p>
           <h2 className="current-name">{current.name}</h2>
